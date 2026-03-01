@@ -48,9 +48,24 @@ PAIRS = [
 
 # 连载故事配置
 # 故事从该日期开始连载：
-# 第 1 天第 1 集，第 2 天第 2 集，…，第 10 天第 10 集，第 10 天以后不再带连载内容（每日推送照常）
+# 第 1 天第 1 集，第 2 天第 2 集，…，第 12 天第 12 集，第 12 天以后不再带连载内容（每日推送照常）
 STORY_START_DATE = datetime.date(2026, 3, 1)
-STORY_EPISODE_FILES = [os.path.join(_BASE_DIR, f"story_episode_{i}.md") for i in range(1, 11)]
+STORY_EPISODE_FILES = [os.path.join(_BASE_DIR, f"story_episode_{i}.md") for i in range(1, 13)]
+
+# 下午 12 点及之后推送时，会显示「下一集」并在结尾加下集彩蛋。每条不超过 100 字，不剧透当集主要内容。
+EPISODE_TEASERS = [
+    "站台上的告别还没说完，城堡里已经有人念出了那个被抹去的名字。",
+    "地下一层的教室亮起紫光时，谁也没想到，先出手的会是校长。",
+    "禁林的落叶下，有一道门正在等人来选：推开，还是锁死。",
+    "神秘事务司的暗厅里，三重圆环已经点亮。只差一步。",
+    "献祭厅的紫光散尽之后，世界并没有立刻改变——直到有人开始问第三句话。",
+    "冬天来了，宝石在证物库里又闪了一次。没有人知道，那是什么在叹气。",
+    "北欧的庄园里，有人在一张旧纸上，写下了关于「门扉」的新预言。",
+    "这一次，他们决定自己定义：谁有资格站在那道门的旁边。",
+    "影子分散之后，奥勒留斯在梦里说：我不再只对你一个人说话了。",
+    "有人想烧掉所有关于「第三种选择」的记录。他们要先写下来，再守住。",
+    "很多年后，哈利退休的那天，阿不思说：我们试过了。",
+]
 
 # 每个新闻主题拉取的条数
 NEWS_ITEMS_PER_CATEGORY = 5
@@ -365,19 +380,25 @@ def generate_analysis_text(history, pairs, all_rates):
     return "\n".join(lines)
 
 
-def get_today_story_text(today: datetime.date) -> Optional[str]:
+def get_today_story_text(today: datetime.date, run_dt: Optional[datetime.datetime] = None) -> Optional[str]:
     """
-    根据连载起始日期和今天的日期，选择对应的一集故事内容。
-    第 1 天第 1 集，…，第 10 天第 10 集；第 11 天及以后返回 None（连载结束）。
+    根据连载起始日期、今日日期与运行时刻，选择对应的一集故事内容。
+    - 12 点之前跑：显示「当日」对应的一集。
+    - 12 点及之后跑：显示「下一集」内容，并在结尾追加下集彩蛋（不超过 100 字，不剧透）。
+    第 1 天第 1 集，…，第 12 天第 12 集；第 13 天及以后返回 None（连载结束）。
     """
     if not STORY_EPISODE_FILES:
         return None
 
     delta_days = (today - STORY_START_DATE).days
-    if delta_days < 0 or delta_days > 9:
+    if delta_days < 0 or delta_days > 11:
         return None
 
-    idx = min(delta_days, len(STORY_EPISODE_FILES) - 1)
+    if run_dt is None:
+        run_dt = datetime.datetime.now()
+    # 12 点及之后视为「下午」，选下一集
+    use_next_episode = run_dt.hour >= 12
+    idx = min(delta_days + (1 if use_next_episode else 0), len(STORY_EPISODE_FILES) - 1)
     path = STORY_EPISODE_FILES[idx]
 
     try:
@@ -386,6 +407,14 @@ def get_today_story_text(today: datetime.date) -> Optional[str]:
     except Exception as e:
         print(f"[WARN] 读取故事文件失败: {path} - {e}")
         return None
+
+    # 下午跑且当前不是最后一集时，追加下集彩蛋（不剧透、≤100 字）
+    if use_next_episode and idx < len(STORY_EPISODE_FILES) - 1 and idx < len(EPISODE_TEASERS):
+        teaser = EPISODE_TEASERS[idx].strip()
+        if len(teaser) > 100:
+            teaser = teaser[:100]
+        if teaser:
+            content = content + "\n\n【下集彩蛋】\n" + teaser
 
     return content
 
@@ -424,9 +453,9 @@ def main():
     else:
         print("[WARN] 未安装 feedparser，已跳过新闻部分。可运行 `python3 -m pip install feedparser` 启用。")
 
-    # 获取今日连载故事文本（仅 3 月 1 日起 10 天内有内容，之后为 None）
-    story_text = get_today_story_text(now_dt.date())
-    if delta_days > 9:
+    # 获取今日连载故事文本（仅 3 月 1 日起 12 天内有内容，之后为 None）
+    story_text = get_today_story_text(now_dt.date(), now_dt)
+    if delta_days > 11:
         ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
         print(f"[INFO] {ts} 超出连载推送周期（delta_days={delta_days}），今日无连载内容。")
 
